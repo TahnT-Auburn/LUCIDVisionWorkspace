@@ -9,6 +9,7 @@ import cv2 as cv
 import sys
 import numpy as np
 from matplotlib import pyplot as plt
+import glob
 
 #%%
 ## GUI FEATURES: Getting Started with Images ##
@@ -67,7 +68,7 @@ hsv_green = cv.cvtColor(green, cv.COLOR_BGR2HSV)
 hsv_red =  cv.cvtColor(red, cv.COLOR_BGR2HSV)
 
 # select color for detection
-color_bgr = hsv_blue
+color_hsv = hsv_blue
 
 # convert BGR to HSV
 hsv = cv.cvtColor(img, cv.COLOR_BGR2HSV)
@@ -79,19 +80,19 @@ upper_bound = []
 k = 0
 while k <= 2:
     if k == 0:
-        lb = color_bgr[0,0,k] - 10
+        lb = color_hsv[0,0,k] - 10
         k += 1
     elif k > 0:
-        lb = color_bgr[0,0,k] - 155
+        lb = color_hsv[0,0,k] - 155
         k += 1
     lower_bound.append(lb)
 k = 0
 while k <= 2:
     if k == 0:
-        ub = color_bgr[0,0,k] + 10
+        ub = color_hsv[0,0,k] + 10
         k += 1
     elif k > 0:
-        ub = color_bgr[0,0,k]
+        ub = color_hsv[0,0,k]
         k += 1
 
     upper_bound.append(ub)
@@ -207,7 +208,8 @@ plt.subplot(1,3,3),plt.imshow(sobel_8u,cmap = 'gray')
 plt.title('Sobel abs(CV_64F)'), plt.xticks([]), plt.yticks([])
 plt.show()
 
-# %% IMAGE PROCESSING: Canny Edge Detection
+# %%
+## IMAGE PROCESSING: Canny Edge Detection ## 
 
 img = cv.imread('images/checkerboard.jpg', cv.IMREAD_GRAYSCALE)
 assert img is not None, "file could not be read, check with os.path.exists()"
@@ -215,7 +217,7 @@ assert img is not None, "file could not be read, check with os.path.exists()"
 # canny edge detection
 edges = cv.Canny(img,100,200)
 
-# dilate edge image
+# dilate edge image     
 kernel = np.ones((5,5),np.uint8)    # define kernel
 edges_dilate = cv.dilate(edges, kernel, iterations=1)
 plt.subplot(1,3,1),plt.imshow(img,cmap = 'gray')
@@ -226,4 +228,141 @@ plt.subplot(1,3,3),plt.imshow(edges_dilate,cmap = 'gray')
 plt.title('Dilated Edge Image'), plt.xticks([]), plt.yticks([])
 plt.show()
 
+# %%
+## CAMERA CALIBRATION ##
+
+# termination criteria
+criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+
+# define dimensions
+dim = (7,7)
+
+# prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(6,5,0)
+#objp = np.zeros((6*7,3), np.float32)
+#objp[:,:2] = np.mgrid[0:7,0:6].T.reshape(-1,2)
+
+objp = np.zeros((dim[0]*dim[1],3), np.float32)
+objp[:,:2] = np.mgrid[0:dim[0],0:dim[1]].T.reshape(-1,2)
+
+# Arrays to store object points and image points from all the images.
+objPoints = [] # 3d point in real world space
+imgPoints = [] # 2d points in image plane.
+
+# calibration images
+images = glob.glob("images/7x7_checker/*.jpg")
+
+succCount = 0
+failCount = 0
+failedImages =[]
+for image in images:
+
+    # read image
+    img = cv.imread(image)
+    gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+
+    # find chessboard corners
+    ret, corners = cv.findChessboardCorners(gray, dim, None)
+
+    # if object found, add object points, refine using cornerSubPix and add image points
+    if ret == True:
+
+        objPoints.append(objp)  # append object points
+        cornersRef = cv.cornerSubPix(gray, corners, (11,11), (-1,-1), criteria)   # refine corners
+        imgPoints.append(cornersRef)    # append image points
+        succCount += 1
+
+        # display results
+        cv.drawChessboardCorners(img, dim, cornersRef, ret)
+        cv.imshow('Corner Calibration', img)
+        cv.waitKey(500)
+
+    elif ret == False:
+        print(f"'Error: Insufficient image {image} to detect chessboard corners OR insufficient dimensions requested")
+        failCount += 1
+
+print("Calibration Setup complete")
+print(f"{succCount} out of {len(images)} image(s) succeeded")
+print(f"{failCount} out of {len(images)} image(s) failed")
+
+cv.destroyAllWindows()
+
+#%%
+# calibrate camera/undistort images
+#failCount = 1
+#if failCount == 0:
+ret, mtx, dist, rvecs, tvecs = cv.calibrateCamera(objPoints, imgPoints, gray.shape[::-1], None, None)
+imgNum = 8
+#imgString = f"images/7x7_checkers/checker_cam1.jpg"
+img = cv.imread(f"images/7x7_checker/checker_cam{imgNum}.jpg")
+h,w = img.shape[:2]
+mtxNew,roi = cv.getOptimalNewCameraMatrix(mtx, dist, (w,h), 1, (w,h))
+
+# using undistort
+imgUndist = cv.undistort(img, mtx, dist, None, mtxNew)
+x,y,w,h = roi
+imgUndist = imgUndist[y:y+h, x:x+w]
+
+plt.subplot(1,2,1), plt.imshow(img)
+plt.title('Original Image'), plt.xticks([]), plt.yticks([])
+plt.subplot(1,2,2), plt.imshow(imgUndist)
+plt.title('Undistorted'), plt.xticks([]), plt.yticks([])
+#cv.imshow("Original Image", img)
+#cv.imshow("Undistorted Image", distUndist)
+#cv.waitKey(0)
+
+#%%
+# Re-projection Error
+mean_error = 0
+for i in range(len(objPoints)):
+    imgPoints2, _ = cv.projectPoints(objPoints[i], rvecs[i], tvecs[i], mtx, dist)
+    error = cv.norm(imgPoints[i], imgPoints2, cv.NORM_L2)/len(imgPoints2)
+    mean_error += error
+print( "total error: {}".format(mean_error/len(objPoints)) )
+
+#%%
+## Pose Estimatation ##
+
+# create draw function to generate 3D axis
+def draw(img, corners, imgpts):
+    corner = tuple(corners[0].ravel().astype(int))
+    img = cv.line(img, corner, tuple(imgpts[0].ravel().astype(int)), (255,0,0), 5)
+    img = cv.line(img, corner, tuple(imgpts[1].ravel().astype(int)), (0,255,0), 5)
+    img = cv.line(img, corner, tuple(imgpts[2].ravel().astype(int)), (0,0,255), 5)
+
+    return img
+
+criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+objp = np.zeros((dim[0]*dim[1],3), np.float32)
+objp[:,:2] = np.mgrid[0:dim[0],0:dim[1]].T.reshape(-1,2)
+axis = np.float32([[3,0,0], [0,3,0], [0,0,-3]]).reshape(-1,3)
+
+for image in glob.glob('images/7x7_checker/*.jpg'):
+
+    img = cv.imread(image)
+    gray = cv.cvtColor(img,cv.COLOR_BGR2GRAY)
+    ret, corners = cv.findChessboardCorners(gray, dim ,None)
+
+    if ret == True:
+        
+        # refine corners
+        corners2 = cv.cornerSubPix(gray,corners,(11,11),(-1,-1),criteria)
+
+        # Find the rotation and translation vectors.
+        ret, rvecs, tvecs = cv.solvePnP(objp, corners2, mtx, dist)
+
+        # project 3D points to image plane
+        imgpts, jac = cv.projectPoints(axis, rvecs, tvecs, mtx, dist)
+        img = draw(img, corners2, imgpts)
+        #plt.imshow(img)
+        
+        cv.imshow('img',img)
+        k = cv.waitKey(0) & 0xFF
+
+        if k == ord('s'):
+            cv.imwrite(image[:6]+'.png', img)
+        
+    elif ret == False:
+        print(f"Error: Could not detect corners of image {image}")
+
+cv.destroyAllWindows()    
 # %%

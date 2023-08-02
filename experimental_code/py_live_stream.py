@@ -179,10 +179,11 @@ def color_detection(npndarray, color_hsv):
 
     return mask, res
 
+#%%
 def edge_detection(npndarray):
     
     # canny edge detection
-    edges = cv.Canny(npndarray,20,200)
+    edges = cv.Canny(npndarray,100,200)
 
     # dilate edge image
     kernel = np.ones((5,5),np.uint8)    # define kernel

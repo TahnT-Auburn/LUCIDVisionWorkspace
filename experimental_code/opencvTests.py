@@ -44,6 +44,8 @@ if k == ord("s"):
 # 1) covert images from one color-space to another (BGR -> Gray), (BGR -> HSV), etc.
 # 2) extract a colored object
 
+img = cv.imread(cv.samples.findFile("images/RGB.jpg"))
+
 # display available flags (flags determines the color conversion type)
 dispFlag = 'true'
 if dispFlag == 'true':
@@ -71,7 +73,7 @@ hsv_red =  cv.cvtColor(red, cv.COLOR_BGR2HSV)
 color_hsv = hsv_blue
 
 # convert BGR to HSV
-hsv = cv.cvtColor(img, cv.COLOR_BGR2HSV)
+hsv = cv.cvtColor(img, cv.COLOR_RGB2HSV)
 
 # generate HSV bounds
 lower_bound = []
@@ -106,11 +108,20 @@ maskImage = cv.inRange(hsv, lowerBound, upperBound)
 # combined image
 combImage = cv.bitwise_and(img,img, mask= maskImage)
 
+plt.subplot(1,3,1), plt.imshow(img)
+plt.title("Original"), plt.xticks([]), plt.yticks([])
+plt.subplot(1,3,2), plt.imshow(maskImage)
+plt.title("Mask"), plt.xticks([]), plt.yticks([])
+plt.subplot(1,3,3), plt.imshow(combImage)
+plt.title("Color Isolated"), plt.xticks([]), plt.yticks([])
+
+'''
 # display image using imshow
 cv.imshow("Original Image", img)
 cv.imshow("Mask Image", maskImage)
 cv.imshow('Resulting Image', combImage)
 k = cv.waitKey(0)   # define waitkey with press key "k"
+'''
 
 #%%
 ## IMAGE PROCESSING: Image Thresholding
@@ -248,12 +259,16 @@ objp[:,:2] = np.mgrid[0:dim[0],0:dim[1]].T.reshape(-1,2)
 objPoints = [] # 3d point in real world space
 imgPoints = [] # 2d points in image plane.
 
+# path to images
+globalPath = "C:/Users/PTHAWAI/OneDrive - Daimler Truck/Documents/LUCIDVisionWorkspace/images/7x7_checker"
+# extension
+extension = "*/.jpg"
 # calibration images
-images = glob.glob("images/7x7_checker/*.jpg")
+images = glob.glob(globalPath + extension)
 
 succCount = 0
 failCount = 0
-failedImages =[]
+failedImages = []
 for image in images:
 
     # read image
@@ -291,9 +306,13 @@ cv.destroyAllWindows()
 #failCount = 1
 #if failCount == 0:
 ret, mtx, dist, rvecs, tvecs = cv.calibrateCamera(objPoints, imgPoints, gray.shape[::-1], None, None)
-imgNum = 8
-#imgString = f"images/7x7_checkers/checker_cam1.jpg"
-img = cv.imread(f"images/7x7_checker/checker_cam{imgNum}.jpg")
+
+#for image in glob.glob('images/7x7_checker/*.jpg'):
+    #img = cv.imread(image)
+
+imgNum = 2
+imgName = f"checker_cam{imgNum}.jpg"
+img = cv.imread(globalPath + imgName)
 h,w = img.shape[:2]
 mtxNew,roi = cv.getOptimalNewCameraMatrix(mtx, dist, (w,h), 1, (w,h))
 
@@ -306,6 +325,8 @@ plt.subplot(1,2,1), plt.imshow(img)
 plt.title('Original Image'), plt.xticks([]), plt.yticks([])
 plt.subplot(1,2,2), plt.imshow(imgUndist)
 plt.title('Undistorted'), plt.xticks([]), plt.yticks([])
+plt.show()
+
 #cv.imshow("Original Image", img)
 #cv.imshow("Undistorted Image", distUndist)
 #cv.waitKey(0)
@@ -317,7 +338,7 @@ for i in range(len(objPoints)):
     imgPoints2, _ = cv.projectPoints(objPoints[i], rvecs[i], tvecs[i], mtx, dist)
     error = cv.norm(imgPoints[i], imgPoints2, cv.NORM_L2)/len(imgPoints2)
     mean_error += error
-print( "total error: {}".format(mean_error/len(objPoints)) )
+print("total error: {}".format(mean_error/len(objPoints)))
 
 #%%
 ## Pose Estimatation ##
@@ -325,9 +346,26 @@ print( "total error: {}".format(mean_error/len(objPoints)) )
 # create draw function to generate 3D axis
 def draw(img, corners, imgpts):
     corner = tuple(corners[0].ravel().astype(int))
-    img = cv.line(img, corner, tuple(imgpts[0].ravel().astype(int)), (255,0,0), 5)
-    img = cv.line(img, corner, tuple(imgpts[1].ravel().astype(int)), (0,255,0), 5)
-    img = cv.line(img, corner, tuple(imgpts[2].ravel().astype(int)), (0,0,255), 5)
+    img = cv.line(img, corner, tuple(imgpts[0].ravel().astype(int)), (255,0,0), 11)
+    img = cv.line(img, corner, tuple(imgpts[1].ravel().astype(int)), (0,255,0), 11)
+    img = cv.line(img, corner, tuple(imgpts[2].ravel().astype(int)), (0,0,255), 11)
+
+    return img
+
+# draw cube function
+def drawCube(img, corners, imgpts):
+
+    imgpts = np.int32(imgpts).reshape(-1,2)
+
+    # draw ground floor
+    img = cv.drawContours(img, [imgpts[:4]],-1,(0,255,0),-3)
+
+    # draw pillars
+    for i,j in zip(range(4),range(4,8)):
+        img = cv.line(img, tuple(imgpts[i]), tuple(imgpts[j]), (255,0,0), 11)
+
+    # draw top layer
+    img = cv.drawContours(img, [imgpts[4:]],-1,(0,0,255),11)
 
     return img
 
@@ -335,6 +373,7 @@ criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 objp = np.zeros((dim[0]*dim[1],3), np.float32)
 objp[:,:2] = np.mgrid[0:dim[0],0:dim[1]].T.reshape(-1,2)
 axis = np.float32([[3,0,0], [0,3,0], [0,0,-3]]).reshape(-1,3)
+axisCube = np.float32([[0,0,0], [0,3,0], [3,3,0], [3,0,0], [0,0,-3],[0,3,-3],[3,3,-3],[3,0,-3]])
 
 for image in glob.glob('images/7x7_checker/*.jpg'):
 
@@ -351,18 +390,29 @@ for image in glob.glob('images/7x7_checker/*.jpg'):
         ret, rvecs, tvecs = cv.solvePnP(objp, corners2, mtx, dist)
 
         # project 3D points to image plane
+
         imgpts, jac = cv.projectPoints(axis, rvecs, tvecs, mtx, dist)
-        img = draw(img, corners2, imgpts)
-        #plt.imshow(img)
-        
+        imgNorm = draw(img, corners2, imgpts)
+        plt.subplot(1,2,1), plt.imshow(imgNorm)
+        plt.title('Pose Estimate'), plt.xticks([]), plt.yticks([])
+
+        imgptsCube, jacCube = cv.projectPoints(axisCube, rvecs, tvecs, mtx, dist)
+        imgCube = drawCube(img, corners2, imgptsCube)
+        plt.subplot(1,2,2), plt.imshow(imgCube)
+        plt.title('Cubic Pose Estimate'), plt.xticks([]), plt.yticks([])
+        plt.show()
+
+        '''
         cv.imshow('img',img)
         k = cv.waitKey(0) & 0xFF
 
         if k == ord('s'):
             cv.imwrite(image[:6]+'.png', img)
-        
+        '''
+
     elif ret == False:
         print(f"Error: Could not detect corners of image {image}")
 
-cv.destroyAllWindows()    
+cv.destroyAllWindows()
+
 # %%

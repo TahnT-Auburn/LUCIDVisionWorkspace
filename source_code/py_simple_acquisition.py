@@ -95,7 +95,6 @@ def enumerate_device_and_acquire_image():
 
 	system.destroy_device()
 
-
 if __name__ == '__main__':
 	print('\nExample started\n')
 	enumerate_device_and_acquire_image()

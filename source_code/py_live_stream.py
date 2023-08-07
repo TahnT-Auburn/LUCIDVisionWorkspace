@@ -69,7 +69,7 @@ def setup(device):
     nodes = nodemap.get_node(['Width', 'Height', 'PixelFormat'])
 
     nodes['Width'].value = 1280
-    nodes['Height'].value = 1080
+    nodes['Height'].value = 720
     nodes['PixelFormat'].value = 'RGB8'
 
     num_channels = 3

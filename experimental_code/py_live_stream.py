@@ -15,6 +15,7 @@
 from arena_api.system import system
 from arena_api.buffer import *
 from arena_api.enums import PixelFormat
+from arena_api.__future__.save import Writer
 
 import ctypes
 import numpy as np
@@ -57,6 +58,25 @@ def create_devices_with_tries():
     else:
         raise Exception(f'No device found! Please connect a device and run '
                         f'the example again.')
+    
+def resetNodes(device):
+        '''
+        Method resetNodes allows the user to reset nodes before setting them.
+        Note that some nodes are dependent on others and not resetting them can cause
+        issues when changing configurations for future streams
+        '''
+
+        # define node map
+        nodemap = device.nodemap
+
+        # specify nodes to reset
+        nodes = nodemap.get_node(['Width','Height','OffsetX','OffsetY'])
+
+        # reset nodes
+        nodes['Width'].value = nodes['Width'].max
+        nodes['Height'].value = nodes['Height'].max
+        nodes['OffsetX'].value = 0
+        nodes['OffsetY'].value = 0
 
 #%%
 def setup(device):
@@ -71,10 +91,11 @@ def setup(device):
     nodemap = device.nodemap
     nodes = nodemap.get_node(['Width', 'Height', 'PixelFormat', 'Gain'])
 
-    #nodes['Width'].value = 1920
-    #nodes['Height'].value = 1080
-    #nodes['PixelFormat'].value = 'RGB8'
-    nodes['PixelFormat'].value = PixelFormat.BGR8
+    #nodes['Width'].value = 1280
+    #nodes['Height'].value = 720
+    #nodes['PixelFormat'].value = 'RGB8's
+    pixel_format = PixelFormat.BGR8
+    nodes['PixelFormat'].value = pixel_format
     nodes['Gain'].value = 40.0
 
     # set channels (adjust based on PixelFormat)
@@ -100,7 +121,13 @@ def setup(device):
     while height % height_node.inc:
         height -= 1
     nodemap['Height'].value = height
-  
+
+    # set camera offset
+    # NOTE: Available options vary depending on the width and height of the image
+    #       Check the minimum and maximum values if errors occur
+    #       Adjust in increments of 4
+    nodemap['OffsetX'].value = 700
+    nodemap['OffsetY'].value = 0   
     # For performance ---------------------------------------------------------
     
     # make sure the device sends images continuously
@@ -129,7 +156,32 @@ def setup(device):
     tl_stream_nodemap['StreamAutoNegotiatePacketSize'].value = True
     tl_stream_nodemap['StreamPacketResendEnable'].value = True
 
-    return num_channels
+    return num_channels, pixel_format
+
+#%%
+def saveImage(buffer, pixel_format, saveCount):
+    '''
+    Method saveImage coverts an input buffer to a specificied pixel format and saves an image
+    to a specified location in the directory. The saveNum variable refers to how many times
+    the function has been executed to update the writer.pattern to be able to save multiple images.
+    NOTE: Must update saveNum outside of the function
+    '''
+
+    # covert image to a displayable pixel format
+    converted = BufferFactory.convert(buffer, pixel_format)
+    print(f"Coverted image to {pixel_format}")
+
+    # prepare image writer (requires 2 parameters to save an image: the buffer and the specified file name or pattern)
+    writer = Writer()
+    writer.pattern = f"images/testimages/image_{saveCount}"
+
+    # save converted buffer
+    writer.save(converted)
+    print(f"{saveCount} image(s) saved to {writer.pattern}")
+
+    # destroy converted buffer
+    BufferFactory.destroy(converted)
+
 
 #%%
 def color_detection(npndarray, color_hsv):
@@ -208,8 +260,11 @@ def example_entry_point():
     devices = create_devices_with_tries()
     device = devices[0]
 
+    # reset
+    resetNodes(device)
+
     # Setup
-    num_channels = setup(device)
+    num_channels, pixel_format = setup(device)
 
     curr_frame_time = 0
     prev_frame_time = 0
@@ -218,11 +273,13 @@ def example_entry_point():
         """
         Infinitely fetch and display buffer data until esc is pressed
         """
+        saveCount = 0
         while True:
             # Used to display FPS on stream
             curr_frame_time = time.time()
 
             buffer = device.get_buffer()
+
             """
             Copy buffer and requeue to avoid running out of buffers
             """
@@ -289,7 +346,11 @@ def example_entry_point():
             key = cv.waitKey(1)
             if key == 27:
                 break
-        
+            elif key == ord("s"):
+                #saveImage(buffer, pixel_format, saveCount)
+                cv.imwrite(f"images/testimages/image_{saveCount+1}.jpg", npndarray)
+                saveCount += 1
+                
         device.stop_stream()
         cv.destroyAllWindows()
     

@@ -17,6 +17,8 @@ from arena_api.buffer import *
 from arena_api.enums import PixelFormat
 from arena_api.__future__.save import Writer
 
+from matplotlib import pyplot as plt
+import glob
 import ctypes
 import numpy as np
 import cv2 as cv
@@ -91,8 +93,8 @@ def setup(device):
     nodemap = device.nodemap
     nodes = nodemap.get_node(['Width', 'Height', 'PixelFormat', 'Gain'])
 
-    #nodes['Width'].value = 1280
-    #nodes['Height'].value = 720
+    nodes['Width'].value = nodes['Width'].max #1280
+    nodes['Height'].value = nodes['Height'].max#720
     #nodes['PixelFormat'].value = 'RGB8's
     pixel_format = PixelFormat.BGR8
     nodes['PixelFormat'].value = pixel_format
@@ -105,7 +107,7 @@ def setup(device):
     set width and height to max values might make the video frame rate low
     The larger the height of the buffer the lower the fps
     """
-    
+    '''
     width_node = nodemap['Width']
     width = nodemap['Width'].max // 3
 
@@ -121,12 +123,13 @@ def setup(device):
     while height % height_node.inc:
         height -= 1
     nodemap['Height'].value = height
+    '''
 
     # set camera offset
     # NOTE: Available options vary depending on the width and height of the image
     #       Check the minimum and maximum values if errors occur
     #       Adjust in increments of 4
-    nodemap['OffsetX'].value = 700
+    nodemap['OffsetX'].value = 0
     nodemap['OffsetY'].value = 0   
     # For performance ---------------------------------------------------------
     
@@ -243,6 +246,158 @@ def edge_detection(npndarray):
 
     return edges, edges_dilate
 
+# %%
+## Camera Calibration Setup ##
+def calibrationSetup():
+
+    # termination criteria
+    criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+
+    # define dimensions
+    dim = (7,7)
+
+    # prepare object points
+    objp = np.zeros((dim[0]*dim[1],3), np.float32)
+    objp[:,:2] = np.mgrid[0:dim[0],0:dim[1]].T.reshape(-1,2)
+
+    # Arrays to store object points and image points from all the images.
+    objPoints = [] # 3d point in real world space
+    imgPoints = [] # 2d points in image plane.
+
+    # path to images
+    globalPath = "C:/Users/PTHAWAI/OneDrive - Daimler Truck/Documents/LUCIDVisionWorkspace/images/calibration_images"
+    # extension
+    extension = "/*.jpg"
+    # calibration images
+    images = glob.glob(globalPath + extension)
+
+    succCount = 0
+    failCount = 0
+    for image in images:
+
+        # read image
+        img = cv.imread(image)
+        gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+
+        # find chessboard corners
+        ret, corners = cv.findChessboardCorners(gray, dim, None)
+
+        # if object found, add object points, refine using cornerSubPix and add image points
+        if ret == True:
+
+            objPoints.append(objp)  # append object points
+            cornersRef = cv.cornerSubPix(gray, corners, (11,11), (-1,-1), criteria)   # refine corners
+            imgPoints.append(cornersRef)    # append image points
+            succCount += 1
+
+        elif ret == False:
+            print(f"'Error: Insufficient image {image} to detect chessboard corners OR insufficient dimensions requested")
+            failCount += 1
+
+    print("Calibration Setup complete")
+    print(f"{succCount} out of {len(images)} image(s) succeeded")
+    print(f"{failCount} out of {len(images)} image(s) failed")
+
+    return  dim, objPoints, imgPoints, gray
+
+#%%
+## Camera Calibration ##
+def calibrate(objPoints, imgPoints, gray):
+
+    # calibrate camera/undistort images
+    ret, cameraMatrix, distortionCoeffs, rotationVect, translationVect = cv.calibrateCamera(objPoints, imgPoints, gray.shape[::-1], None, None)
+
+    # display calibration outputs
+    print(f"Projection Error: \n{ret}\n")
+    print(f"Camera Matrix: \n{cameraMatrix}\n")
+    print(f"Distortion coefficients: \n{distortionCoeffs}\n")
+    print(f"Camera Matrix: \n{cameraMatrix}\n")
+    print(f"Rotation Vector: \n{rotationVect}\n")
+    print(f"Translation Vector: \n{translationVect}\n")
+
+    # return outputs
+    return ret, cameraMatrix, distortionCoeffs, rotationVect, translationVect
+
+#%%
+# Re-projection Error
+def reprojectionError(objPoints, imgPoints, cameraMatrix, distortionCoeffs, rotationVect, translationVect):
+    
+    mean_error = 0
+    for i in range(len(objPoints)):
+        imgPoints2, _ = cv.projectPoints(objPoints[i], rotationVect[i], translationVect[i], cameraMatrix, distortionCoeffs)
+        error = cv.norm(imgPoints[i], imgPoints2, cv.NORM_L2)/len(imgPoints2)
+        mean_error += error
+    print("total error: {}".format(mean_error/len(objPoints)))
+
+def undistort(img, cameraMatrix, distortionCoeffs):
+
+    h,w = img.shape[:2]
+    mtxNew,roi = cv.getOptimalNewCameraMatrix(cameraMatrix, distortionCoeffs, (w,h), 1, (w,h))
+
+    # using undistort
+    imgUndist = cv.undistort(img, cameraMatrix, distortionCoeffs, None, mtxNew)
+    x,y,w,h = roi
+    imgUndist = imgUndist[y:y+h, x:x+w]
+
+    # return undistorted image
+    return imgUndist
+
+## Pose Estimatation ##
+# Draw Axes on Chessboard
+def draw(img, corners, imgpts):
+    corner = tuple(corners[0].ravel().astype(int))
+    img = cv.line(img, corner, tuple(imgpts[0].ravel().astype(int)), (255,0,0), 11)
+    img = cv.line(img, corner, tuple(imgpts[1].ravel().astype(int)), (0,255,0), 11)
+    img = cv.line(img, corner, tuple(imgpts[2].ravel().astype(int)), (0,0,255), 11)
+
+    return img
+
+# Draw Cube on Chessboard
+def drawCube(img, corners, imgpts):
+
+    imgpts = np.int32(imgpts).reshape(-1,2)
+
+    # draw ground floor
+    img = cv.drawContours(img, [imgpts[:4]],-1,(0,255,0),-3)
+
+    # draw pillars
+    for i,j in zip(range(4),range(4,8)):
+        img = cv.line(img, tuple(imgpts[i]), tuple(imgpts[j]), (255,0,0), 11)
+
+    # draw top layer
+    img = cv.drawContours(img, [imgpts[4:]],-1,(0,0,255),11)
+
+    return img
+
+# Pose Estimation
+def poseEstimate(img, dim, objp, axis, axisCube, cameraMatrix, distortionCoeffs):
+
+    criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+
+    #gray = cv.cvtColor(img,cv.COLOR_BGR2GRAY)
+    ret, corners = cv.findChessboardCorners(img, dim ,None) #img-> gray
+
+    if ret == True:
+        
+        # refine corners
+        corners2 = cv.cornerSubPix(img,corners,(11,11),(-1,-1),criteria)#img->gray
+
+        # Find the rotation and translation vectors.
+        ret, rvecs, tvecs = cv.solvePnP(objp, corners2, cameraMatrix, distortionCoeffs)
+
+        # project 3D points to image plane
+
+        imgpts, jac = cv.projectPoints(axis, rvecs, tvecs, cameraMatrix, distortionCoeffs)
+        imgAxes = draw(img, corners2, imgpts)
+
+        #imgptsCube, jacCube = cv.projectPoints(axisCube, rvecs, tvecs, cameraMatrix, distortionCoeffs)
+        #imgCube = drawCube(img, corners2, imgptsCube)
+
+        return imgAxes
+
+    else:
+        return img
+    
 #%%
 def example_entry_point():
     """
@@ -257,6 +412,11 @@ def example_entry_point():
     (8) When Esc is pressed, stop stream and destroy OpenCV windows
     """
 
+    # calibrate camera
+    dim, objPoints, imgPoints, gray = calibrationSetup()
+    ret, cameraMatrix, distortionCoeffs, rotationVect, translationVect = calibrate(objPoints, imgPoints, gray)
+    reprojectionError(objPoints, imgPoints, cameraMatrix, distortionCoeffs, rotationVect, translationVect)
+
     devices = create_devices_with_tries()
     device = devices[0]
 
@@ -268,6 +428,12 @@ def example_entry_point():
 
     curr_frame_time = 0
     prev_frame_time = 0
+
+    # define items for pose estimation function
+    objp = np.zeros((dim[0]*dim[1],3), np.float32)
+    objp[:,:2] = np.mgrid[0:dim[0],0:dim[1]].T.reshape(-1,2)
+    axis = np.float32([[3,0,0], [0,3,0], [0,0,-3]]).reshape(-1,3)
+    axisCube = np.float32([[0,0,0], [0,3,0], [3,3,0], [3,0,0], [0,0,-3],[0,3,-3],[3,3,-3],[3,0,-3]])
 
     with device.start_stream():
         """
@@ -295,7 +461,7 @@ def example_entry_point():
             Create a reshaped NumPy array to display using OpenCV
             """
             npndarray = np.ndarray(buffer=array, dtype=np.uint8, shape=(item.height, item.width, buffer_bytes_per_pixel))
-
+            npndarray_gray = cv.cvtColor(npndarray, cv.COLOR_BGR2GRAY)
             # ----- color object detection -----
 
             # define BGR colors
@@ -315,12 +481,26 @@ def example_entry_point():
 
             # call edge detection function
             edges, edges_dilated = edge_detection(npndarray)
+
+            # undistort
+            imgUndist = undistort(npndarray, cameraMatrix, distortionCoeffs)
+
+            # pose estimate output
+            est = poseEstimate(npndarray_gray, dim, objp, axis, axisCube, cameraMatrix, distortionCoeffs)
+
+            # pose
             # -----------------------------------
             # stream
             fps = str(1/(curr_frame_time - prev_frame_time))
             cv.putText(npndarray, fps, (7, 70), cv.FONT_HERSHEY_SIMPLEX, 3, (100, 255, 0), 3, cv.LINE_AA)
-            cv.imshow('Original', npndarray)
+            cv.imshow('Raw', npndarray)
 
+            #cv.putText(imgUndist, fps, (7, 70), cv.FONT_HERSHEY_SIMPLEX, 3, (100, 255, 0), 3, cv.LINE_AA)
+            #cv.imshow('Undistorted', imgUndist)
+
+            #cv.putText(est, fps, (7, 70), cv.FONT_HERSHEY_SIMPLEX, 3, (100, 255, 0), 3, cv.LINE_AA)
+            #cv.imshow('Pose Estimate', est)
+            '''
             cv.putText(mask, fps, (7, 70), cv.FONT_HERSHEY_SIMPLEX, 3, (100, 255, 0), 3, cv.LINE_AA)
             cv.imshow('Masked', mask)
 
@@ -332,6 +512,7 @@ def example_entry_point():
 
             cv.putText(edges_dilated, fps, (7, 70), cv.FONT_HERSHEY_SIMPLEX, 3, (100, 255, 0), 3, cv.LINE_AA)
             cv.imshow('Dilated Edge Detection', edges_dilated)
+            '''
 
             """
             Destroy the copied item to prevent memory leaks

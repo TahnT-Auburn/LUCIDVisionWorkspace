@@ -91,7 +91,7 @@ def save(buffer):
 	print(f'{TAB1}Prepare Image Writer')
 	writer = Writer()
 	#writer.pattern = 'images/image_<count>.jpg'
-	writer.pattern = 'images/7x7_checker/checker_cam10.jpg' # custom image name
+	writer.pattern = 'images/7x7_checker/checker_cam17.jpg' # custom image name
 
 
 	# Save converted buffer

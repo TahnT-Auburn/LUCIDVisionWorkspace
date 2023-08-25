@@ -34,13 +34,13 @@ for image in images:
     x,y,w,h = roi
     imgUndist = imgUndist[y:y+h, x:x+w]
 
-    '''
+
     plt.subplot(1,2,1), plt.imshow(img)
     plt.title('Original Image'), plt.xticks([]), plt.yticks([])
     plt.subplot(1,2,2), plt.imshow(imgUndist)
     plt.title('Undistorted'), plt.xticks([]), plt.yticks([])
     plt.show()
-    '''
+
 #%%
 ## Pose Estimatation ##
 

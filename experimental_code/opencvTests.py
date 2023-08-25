@@ -262,7 +262,7 @@ imgPoints = [] # 2d points in image plane.
 # path to images
 globalPath = "C:/Users/PTHAWAI/OneDrive - Daimler Truck/Documents/LUCIDVisionWorkspace/images/7x7_checker"
 # extension
-extension = "*/.jpg"
+extension = "/*.jpg"
 # calibration images
 images = glob.glob(globalPath + extension)
 
